@@ -32,7 +32,7 @@ if not OPENROUTER_KEY:
         pass
 
 if not OPENROUTER_KEY:
-    raise ValueError("OPENROUTER_API_KEY environment variable or .env file required")
+    print("WARNING: OPENROUTER_API_KEY not set - transcription will fail")
 
 
 class TranscribeRequest(BaseModel):
@@ -113,7 +113,4 @@ async def transcribe(req: TranscribeRequest):
         )
 
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+# No __main__ needed - Railpack runs uvicorn via start command
