@@ -1,15 +1,14 @@
 """
 Call Center Transcription Service
 Hosted on Railway - uses OpenRouter whisper-1 for transcription
+Accepts either recording_url (downloads + transcribes) or audio_base64 (transcribes only)
 Cost: ~$0.03 per 5-minute call
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 import httpx
-import ssl
 import base64
 import os
-import json
 import time
 from typing import Optional
 
@@ -19,7 +18,9 @@ OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 
 class TranscribeRequest(BaseModel):
-    recording_url: str
+    recording_url: Optional[str] = None
+    audio_base64: Optional[str] = None
+    audio_format: str = "mp3"
     phone: Optional[str] = None
 
 
@@ -41,16 +42,23 @@ async def transcribe(req: TranscribeRequest):
     start_time = time.time()
 
     try:
-        # Download audio with SSL bypass for ViciDial
-        async with httpx.AsyncClient(verify=False, timeout=120.0) as client:
-            audio_response = await client.get(req.recording_url)
-            audio_response.raise_for_status()
-            audio_bytes = audio_response.content
+        audio_b64 = req.audio_base64
 
-        # Base64 encode
-        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+        # If URL provided, download first
+        if not audio_b64 and req.recording_url:
+            async with httpx.AsyncClient(verify=False, timeout=120.0) as client:
+                audio_response = await client.get(req.recording_url)
+                audio_response.raise_for_status()
+                audio_b64 = base64.b64encode(audio_response.content).decode('utf-8')
 
-        # Call OpenRouter whisper-1 via /audio/transcriptions (JSON body)
+        if not audio_b64:
+            return TranscribeResponse(
+                transcript="",
+                phone=req.phone,
+                error="No audio provided (need recording_url or audio_base64)"
+            )
+
+        # Call OpenRouter whisper-1
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post(
                 "https://openrouter.ai/api/v1/audio/transcriptions",
@@ -62,7 +70,7 @@ async def transcribe(req: TranscribeRequest):
                     "model": "openai/whisper-1",
                     "input_audio": {
                         "data": audio_b64,
-                        "format": "mp3"
+                        "format": req.audio_format
                     }
                 }
             )
